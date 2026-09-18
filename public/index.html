@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat Portal</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1115;
+      color: #e6e6e6;
+      height: 100vh;
+    }
+    .app { display: flex; height: 100vh; }
+    .sidebar {
+      width: 300px;
+      background: #171a21;
+      border-right: 1px solid #23272f;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    .sidebar h1 { font-size: 18px; }
+    label { font-size: 12px; color: #9aa3b2; display: block; margin-bottom: 4px; }
+    select, button {
+      width: 100%;
+      background: #23272f;
+      color: #e6e6e6;
+      border: 1px solid #2e3440;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+    }
+    select:focus { outline: none; border-color: #4f8cff; }
+    .hint { font-size: 11px; color: #7a8392; }
+    .warn { font-size: 11px; color: #f2c94c; }
+    .chat {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      max-width: calc(100% - 300px);
+    }
+    .messages { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .msg {
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user { align-self: flex-end; background: #2557c9; }
+    .msg.assistant { align-self: flex-start; background: #1e2128; border: 1px solid #2e3440; }
+    .msg.tool { align-self: flex-start; background: #14281d; border: 1px solid #1f4d33; font-size: 12px; color: #8fe3b0; }
+    .msg.status { align-self: flex-start; background: transparent; color: #7a8392; font-size: 12px; font-style: italic; }
+    .tool-name { color: #4f8cff; font-weight: 600; }
+    .input-row {
+      display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid #23272f;
+    }
+    .input-row input {
+      flex: 1; background: #171a21; border: 1px solid #2e3440; border-radius: 10px;
+      padding: 12px 14px; color: #e6e6e6; font-size: 14px;
+    }
+    .input-row input:focus { outline: none; border-color: #4f8cff; }
+    .input-row button {
+      width: auto; padding: 12px 20px; background: #2557c9; border: none; cursor: pointer; font-weight: 600;
+    }
+    .input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .meta-row { display: flex; gap: 8px; }
+    .meta-row select { flex: 1; }
+    .clear-btn { background: #2e3440; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <h1>🤖 Chat Portal</h1>
+
+      <div>
+        <label>Chat Agent</label>
+        <select id="agentSelect"></select>
+      </div>
+
+      <div id="llmBlock">
+        <div>
+          <label>LLM Provider</label>
+          <select id="providerSelect"></select>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <label>Model</label>
+          <select id="modelSelect"></select>
+        </div>
+      </div>
+
+      <button class="clear-btn" id="clearBtn">Clear Chat</button>
+      <div class="hint">Keys come from the server's .env file.<br/>Add XAI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, TINYFISH_API_KEY.</div>
+      <div id="keyStatus"></div>
+    </aside>
+
+    <main class="chat">
+      <div class="messages" id="messages"></div>
+      <div class="input-row">
+        <input id="input" placeholder="Ask your agent something…" autocomplete="off" />
+        <button id="sendBtn">Send</button>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const messagesEl = $("messages");
+    const input = $("input");
+    const sendBtn = $("sendBtn");
+
+    let sessionId = null;
+    let meta = null;
+    let busy = false;
+
+    async function init() {
+      try {
+        const res = await fetch("/api/meta");
+        meta = await res.json();
+
+        $("agentSelect").innerHTML = meta.agents
+          .map((a) => `<option value="${a.id}">${a.name} — ${a.description}</option>`)
+          .join("");
+
+        $("providerSelect").innerHTML = meta.providers
+          .map((p) => `<option value="${p.name}" data-key="${p.hasKey}">${p.displayName}</option>`)
+          .join("");
+
+        $("providerSelect").addEventListener("change", updateModels);
+        updateModels();
+        renderKeyStatus();
+      } catch (err) {
+        console.error("init error:", err);
+        $("keyStatus").innerHTML = `<div class="warn">❌ Failed to load: ${err.message}</div>`;
+      }
+    }
+
+    function updateModels() {
+      const selectedName = $("providerSelect").value;
+      const p = meta?.providers?.find((x) => x.name === selectedName);
+      if (!p?.models?.length) {
+        $("modelSelect").innerHTML = '<option value="">No models available</option>';
+        return;
+      }
+      $("modelSelect").innerHTML = p.models
+        .map((m) => `<option value="${m.id}">${m.name}</option>`)
+        .join("");
+    }
+
+    function renderKeyStatus() {
+      const rows = meta.providers
+        .map((p) => `<div>${p.displayName}: ${p.hasKey ? "✅ key set" : "⚠️ no key"}</div>`)
+        .join("");
+      const anyKey = meta.providers.some((p) => p.hasKey);
+      const banner = anyKey
+        ? `<div style="margin-top:6px;color:#8fe3b0;">✅ Ready — pick a provider + model above.</div>`
+        : `<div style="margin-top:6px;color:#f2c94c;">⚠️ No API keys set. Add keys to .env.</div>`;
+      $("keyStatus").innerHTML = `<div class="warn">${rows}${banner}</div>`;
+    }
+
+    function addMessage(role, text, extraClass = "") {
+      const div = document.createElement("div");
+      div.className = `msg ${role} ${extraClass}`;
+      if (role === "assistant") {
+        div.innerHTML = renderMarkdown(text);
+      } else {
+        div.textContent = text;
+      }
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    function renderMarkdown(md) {
+      if (!md) return "";
+      let html = md
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      html = html.replace(/^### (.+)$/gm, "<h4 style=\"margin:8px 0 4px;color:#c7d2fe\">$1</h4>");
+      html = html.replace(/^## (.+)$/gm, "<h3 style=\"margin:10px 0 4px;color:#c7d2fe\">$1</h3>");
+      html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+      html = html.replace(/`([^`]+)`/g, "<code style=\"background:#2a2f3a;padding:1px 4px;border-radius:3px\">$1</code>");
+      html = html.replace(/^🔗 (.+)$/gm, "<span style=\"color:#4f8cff\">🔗 $1</span>");
+      html = html.replace(/^> (.+)$/gm, "<blockquote style=\"border-left:3px solid #4f8cff;padding-left:10px;color:#9aa3b2\">$1</blockquote>");
+      html = html.replace(/\n/g, "<br>");
+      return html;
+    }
+
+    function toolHtmlEl(name, text) {
+      const div = document.createElement("div");
+      div.className = "msg tool";
+      div.innerHTML = `<span class="tool-name">🔧 ${name}</span> · ${text.replace(/</g, "&lt;")}`;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    async function send() {
+      const text = input.value.trim();
+      if (!text || busy) return;
+      input.value = "";
+      busy = true;
+      sendBtn.disabled = true;
+
+      addMessage("user", text);
+
+      const isRag = $("agentSelect").value === "rag";
+
+      const body = isRag
+        ? {
+            query: text,
+            k: 5,
+            provider: $("providerSelect").value,
+            model: $("modelSelect").value,
+          }
+        : {
+            sessionId: sessionId || undefined,
+            agentId: $("agentSelect").value,
+            provider: $("providerSelect").value,
+            model: $("modelSelect").value,
+            text,
+          };
+
+      const statusEl = addMessage("status", "⏳ Starting…");
+      let assistantBox = null;
+
+      try {
+        const res = await fetch(isRag ? "/api/rag/HowTo" : "/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let full = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const part of parts) {
+            if (!part.startsWith("data: ")) continue;
+            const payload = JSON.parse(part.slice(6));
+            switch (payload.type) {
+              case "status":
+                statusEl.textContent = `⏳ ${payload.message}`;
+                break;
+              case "delta":
+                if (!assistantBox) {
+                  assistantBox = document.createElement("div");
+                  assistantBox.className = "msg assistant";
+                  messagesEl.appendChild(assistantBox);
+                }
+                full += payload.text;
+                assistantBox.innerHTML = renderMarkdown(full);
+                break;
+              case "tool_call":
+                statusEl.textContent = `⏳ Running \u0060${payload.name}\u0060…`;
+                break;
+              case "tool_result":
+                break;
+              case "done":
+                statusEl.textContent = "✅ Done";
+                if (payload.sessionId) sessionId = payload.sessionId;
+                break;
+              case "error":
+                statusEl.textContent = "❌ " + payload.error;
+                break;
+            }
+          }
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+      } catch (err) {
+        statusEl.textContent = "❌ Network error: " + err.message;
+      }
+
+      busy = false;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+
+    $("sendBtn").addEventListener("click", send);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send();
+    });
+
+    $("clearBtn").addEventListener("click", async () => {
+      messagesEl.innerHTML = "";
+      sessionId = (await (await fetch("/api/chat/session", { method: "POST" })).json()).sessionId;
+    });
+
+    init();
+  </script>
+</body>
+</html>
