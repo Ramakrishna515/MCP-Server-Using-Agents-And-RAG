@@ -310,7 +310,7 @@ The two new tools registered in `ALL_TOOLS`:
 |----------|---------|
 | `POST /api/rag/index` | Builds the vector index. Returns `{ ok, indexed, model }` |
 | `POST /api/rag` | `{ query, k? }` → `{ answer, sources[] }` (non-streaming) |
-| `POST /api/rag/stream` | `{ query, k?, provider?, model? }` → SSE answer streamed **one character per event**, used by the frontend bot for a typing effect |
+| `POST /api/rag/HowTo` | `{ query, k?, provider?, model? }` → SSE answer streamed **one character per event**, used by the frontend bot for a typing effect |
 
 ### `src/providers.ts` — the Gemini provider (generation)
 
