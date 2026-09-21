@@ -223,7 +223,10 @@ That is exactly the pipeline defined in `Jenkinsfile` at the repo root.
 > to `agent any`, then install Node.js 18+ directly on the Jenkins agent.
 
 Recommended plugins (from the default install most ship with): **Pipeline
-(workflow-aggregator)**, **Git**, **Timestamper**, **AnsiColor**.
+(workflow-aggregator)**, **Git**, **Timestamper**, **AnsiColor**, and
+**Workspace Cleanup (`ws-cleanup`)** — the last one is required because the
+`Jenkinsfile` calls `cleanWs()`, and **Docker Pipeline (`docker-workflow`)** is
+required for the `node:22` Docker agent.
 
 ### 9.3 Create the Jenkins job (one-time setup)
 
@@ -328,6 +331,54 @@ TS> node dist/test.js
 Test passed.
 [Finished] SUCCESS (1m 2s)
 ```
+
+### 9.8 Verified end to end (ran locally, real output)
+
+The exact flow below was executed on a local Jenkins (Docker) and the pipeline
+finished **SUCCESS** in ~14 s with `Test passed.` — this is proof the whole chain
+works, not just the guide text.
+
+1. Started Jenkins in Docker:
+   ```bash
+   docker run -d --name jenkins-local -p 8090:8080 \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     -e JENKINS_OPTS="-Djenkins.install.runSetupWizard=false" \
+     jenkins/jenkins:lts-jdk21
+   ```
+2. Installed the pipeline plugins:
+   ```bash
+   docker exec jenkins-local jenkins-plugin-cli --plugins \
+     git workflow-aggregator timestamper ansicolor docker-workflow ws-cleanup
+   docker restart jenkins-local
+   ```
+3. Created job `build-mcp-server` via API: **Pipeline script from SCM**, repo
+   `https://github.com/Ramakrishna515/MCP-Server-Using-Agents-And-RAG.git`,
+   branch `*/Testing`, script path `Jenkinsfile`.
+4. Clicked **Build**. Console confirms each step really ran:
+   ```
+   Obtained Jenkinsfile from git https://github.com/Ramakrishna515/...git
+   Checking out Revision fd4f54f... (refs/remotes/origin/Testing)
+   + docker inspect -f . node:22
+   $ docker run -t -d -u 1000:1000 ... node:22 cat
+   [Pipeline] { (Install dependencies)
+   [Pipeline] { (Build)
+   [Pipeline] { (Test)
+   Notes MCP Server running on stdio
+   Test passed.
+   Finished: SUCCESS (13.9 s)
+   ```
+
+**Two gotchas discovered and how to avoid them:**
+- `docker: not found` → the Jenkins image has **no docker CLI**. Install it inside
+  the container (`docker exec -u 0 jenkins-local sh -c 'apt-get install -y docker.io'`)
+  so the `node:22` agent can be spawned; without Docker you must use `agent any`.
+- `No such DSL method 'cleanWs'` → `cleanWs` needs the **Workspace Cleanup plugin**
+  (`ws-cleanup`). Install it or remove the `cleanWs()` line.
+- Jenkins jobs POST via API need the CSRF **crumb** (session-bound cookie) or calls
+  return `403`.
+
+That Jenkins instance is shared for local testing at `http://localhost:8090`; to stop
+it later: `docker rm -f jenkins-local`.
 
 ---
 
