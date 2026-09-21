@@ -337,7 +337,7 @@ with the `provider` arg of `ask_rag` / the `provider` field of `/api/rag`.
 
 ### Streaming the answer to the frontend bot
 
-`/api/rag/stream` uses Gemini's `:streamGenerateContent` (SSE) and re-emits each
+`/api/rag/HowTo` uses Gemini's `:streamGenerateContent` (SSE) and re-emits each
 token as **one character** per SSE event so the chat bubble appears to type:
 
 ```
@@ -353,7 +353,7 @@ data: {"type":"done","text":"","sessionId":""}
 ```
 
 The frontend (`public/index.html`) detects the **RAG Agent** in the chat UI,
-posts to `/api/rag/stream` instead of `/api/chat`, and appends the `delta`
+posts to `/api/rag/HowTo` instead of `/api/chat`, and appends the `delta`
 characters to the same message bubble.
 
 ### Console monitoring — 7-step logs
