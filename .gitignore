@@ -4,3 +4,4 @@ dist/
 data/notes.json
 .DS_Store
 .gitignore
+.env.example
