@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .env
+.env.example
 data/notes.json
 .DS_Store
 .gitignore
-.env.example
