@@ -3,3 +3,4 @@ dist/
 .env
 data/notes.json
 .DS_Store
+.gitignore
