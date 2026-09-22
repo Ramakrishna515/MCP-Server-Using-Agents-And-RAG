@@ -13,7 +13,8 @@ pipeline {
         IMAGE = 'build-mcp-server'
         IMAGE_TAG = 'latest'
 
-        CONTAINER = 'build-mcp-server'
+        // Existing container name
+        CONTAINER = 'mcp-server'
 
         // Host port -> Container port
         HOST_PORT = '4001'
@@ -21,6 +22,10 @@ pipeline {
     }
 
     stages {
+
+        // ============================================================
+        // BUILD & TEST
+        // ============================================================
 
         stage('Build & Test') {
 
@@ -31,6 +36,10 @@ pipeline {
             }
 
             stages {
+
+                // ----------------------------------------------------
+                // CHECKOUT
+                // ----------------------------------------------------
 
                 stage('Checkout') {
                     steps {
@@ -58,6 +67,10 @@ pipeline {
                     }
                 }
 
+                // ----------------------------------------------------
+                // ENVIRONMENT
+                // ----------------------------------------------------
+
                 stage('Environment') {
                     steps {
                         sh '''
@@ -65,20 +78,28 @@ pipeline {
                             echo "ENVIRONMENT"
                             echo "=========================================="
 
-                            echo "NODE_ENV      : ${NODE_ENV}"
-                            echo "Node          : $(node --version)"
-                            echo "NPM           : $(npm --version)"
+                            echo "NODE_ENV : ${NODE_ENV}"
+                            echo "Node     : $(node --version)"
+                            echo "NPM      : $(npm --version)"
 
                             echo "=========================================="
                         '''
                     }
                 }
 
-                stage('Install dependencies') {
+                // ----------------------------------------------------
+                // INSTALL DEPENDENCIES
+                // ----------------------------------------------------
+
+                stage('Install Dependencies') {
                     steps {
                         sh 'npm ci'
                     }
                 }
+
+                // ----------------------------------------------------
+                // BUILD
+                // ----------------------------------------------------
 
                 stage('Build') {
                     steps {
@@ -86,11 +107,19 @@ pipeline {
                     }
                 }
 
+                // ----------------------------------------------------
+                // TEST
+                // ----------------------------------------------------
+
                 stage('Test') {
                     steps {
                         sh 'npm run test'
                     }
                 }
+
+                // ----------------------------------------------------
+                // MCP SERVER SMOKE TEST
+                // ----------------------------------------------------
 
                 stage('Server Smoke Test') {
                     steps {
@@ -114,6 +143,8 @@ pipeline {
                             else
 
                                 echo "FAIL: server did not start"
+                                echo ""
+                                echo "Server logs:"
                                 cat server.log
 
                                 kill $SRV 2>/dev/null
@@ -124,6 +155,10 @@ pipeline {
                         '''
                     }
                 }
+
+                // ----------------------------------------------------
+                // WEB SMOKE TEST
+                // ----------------------------------------------------
 
                 stage('Web Smoke Test') {
                     steps {
@@ -157,7 +192,8 @@ pipeline {
                             if [ $OK = 0 ]; then
 
                                 echo "FAIL: web portal did not respond"
-
+                                echo ""
+                                echo "Web server logs:"
                                 cat web.log
 
                                 kill $WEB 2>/dev/null
@@ -176,6 +212,10 @@ pipeline {
             }
         }
 
+        // ============================================================
+        // DOCKER IMAGE
+        // ============================================================
+
         stage('Docker Image') {
 
             agent any
@@ -185,7 +225,7 @@ pipeline {
                     set -e
 
                     echo "=========================================="
-                    echo "DOCKER IMAGE"
+                    echo "DOCKER IMAGE BUILD"
                     echo "=========================================="
 
                     echo "Image      : ${IMAGE}"
@@ -205,6 +245,10 @@ pipeline {
             }
         }
 
+        // ============================================================
+        // DEPLOY CONTAINER
+        // ============================================================
+
         stage('Deploy Container') {
 
             agent any
@@ -222,37 +266,71 @@ pipeline {
                     echo "Host Port      : ${HOST_PORT}"
                     echo "Container Port : ${CONTAINER_PORT}"
                     echo "Port Mapping   : ${HOST_PORT}:${CONTAINER_PORT}"
-                    echo "Environment    : ${NODE_ENV}"
 
                     echo ""
-                    echo "Stopping existing container (by name: ${CONTAINER})..."
+                    echo "=========================================="
+                    echo "CHECKING .env FILE"
+                    echo "=========================================="
+
+                    if [ ! -f .env ]; then
+                        echo "ERROR: .env file not found!"
+                        echo ""
+                        echo "The container requires:"
+                        echo "    --env-file .env"
+                        echo ""
+                        echo "Deployment stopped."
+                        exit 1
+                    fi
+
+                    echo ".env file found."
+
+                    echo ""
+                    echo "=========================================="
+                    echo "STOPPING EXISTING CONTAINER"
+                    echo "=========================================="
 
                     docker stop ${CONTAINER} 2>/dev/null || true
                     docker rm ${CONTAINER} 2>/dev/null || true
 
+                    echo "Existing container removed."
+
                     echo ""
-                    echo "Freeing host port ${HOST_PORT} if held by any OTHER container..."
+                    echo "=========================================="
+                    echo "CHECKING HOST PORT"
+                    echo "=========================================="
 
                     EXISTING=$(docker ps -q --filter "publish=${HOST_PORT}")
 
                     if [ -n "$EXISTING" ]; then
-                        echo "Port ${HOST_PORT} is in use by container id(s):"
+
+                        echo "Port ${HOST_PORT} is currently used by:"
                         echo "$EXISTING"
-                        echo "Removing to free the port..."
+
+                        echo ""
+                        echo "Removing containers using port ${HOST_PORT}..."
+
                         docker rm -f $EXISTING
+
                     else
+
                         echo "Port ${HOST_PORT} is free."
+
                     fi
 
                     echo ""
-                    echo "Starting new container..."
+                    echo "=========================================="
+                    echo "STARTING NEW CONTAINER"
+                    echo "=========================================="
 
                     docker run -d \
                         --name ${CONTAINER} \
                         --restart unless-stopped \
                         -p ${HOST_PORT}:${CONTAINER_PORT} \
-                        -e NODE_ENV=${NODE_ENV} \
+                        --env-file .env \
                         ${IMAGE}:${IMAGE_TAG}
+
+                    echo ""
+                    echo "Container started successfully."
 
                     echo ""
                     echo "=========================================="
@@ -271,21 +349,51 @@ pipeline {
                     docker port ${CONTAINER}
 
                     echo ""
-                    echo "Application URL:"
+                    echo "=========================================="
+                    echo "ENVIRONMENT"
+                    echo "=========================================="
+
+                    echo "Environment file : .env"
+                    echo "NODE_ENV         : ${NODE_ENV}"
+
+                    echo ""
+                    echo "=========================================="
+                    echo "APPLICATION URL"
+                    echo "=========================================="
+
                     echo "http://localhost:${HOST_PORT}"
 
+                    echo ""
+                    echo "=========================================="
+                    echo "DEPLOYMENT COMPLETED"
                     echo "=========================================="
                 '''
             }
         }
-        
     }
 
+    // ================================================================
+    // POST ACTIONS
+    // ================================================================
+
     post {
+
         always {
             node('') {
                 cleanWs()
             }
+        }
+
+        success {
+            echo '=========================================='
+            echo 'JENKINS DEPLOYMENT SUCCESSFUL'
+            echo '=========================================='
+        }
+
+        failure {
+            echo '=========================================='
+            echo 'JENKINS DEPLOYMENT FAILED'
+            echo '=========================================='
         }
     }
 }
