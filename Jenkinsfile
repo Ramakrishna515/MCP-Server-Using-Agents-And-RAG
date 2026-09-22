@@ -278,6 +278,48 @@ pipeline {
                 '''
             }
         }
+
+        stage('Health Check') {
+
+            agent any
+
+            steps {
+                sh '''
+                    set -e
+
+                    echo "=========================================="
+                    echo "HEALTH CHECK"
+                    echo "=========================================="
+
+                    sleep 5
+
+                    echo "Checking:"
+                    echo "http://localhost:${HOST_PORT}/"
+
+                    HTTP_STATUS=$(curl \
+                        -s \
+                        -o /dev/null \
+                        -w "%{http_code}" \
+                        http://localhost:${HOST_PORT}/)
+
+                    echo "HTTP Status: ${HTTP_STATUS}"
+
+                    if [ "${HTTP_STATUS}" = "200" ]; then
+                        echo "PASS: Application is running"
+                    else
+                        echo "FAIL: Application returned HTTP ${HTTP_STATUS}"
+
+                        echo ""
+                        echo "Container logs:"
+                        docker logs ${CONTAINER} --tail 50
+
+                        exit 1
+                    fi
+
+                    echo "=========================================="
+                '''
+            }
+        }
     }
 
     post {
