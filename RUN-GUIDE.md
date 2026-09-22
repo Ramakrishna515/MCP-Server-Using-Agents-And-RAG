@@ -205,7 +205,8 @@ Jenkins is a CI server. You give it a repo and a recipe (the `Jenkinsfile`);
 every time you tell it to build (or push), it automates:
 
 ```
-checkout code → npm ci → npm run build → npm run test → clean workspace
+checkout code → npm ci → npm run build → npm run test
+              → server smoke test → web smoke test → clean workspace
 ```
 
 That is exactly the pipeline defined in `Jenkinsfile` at the repo root.
