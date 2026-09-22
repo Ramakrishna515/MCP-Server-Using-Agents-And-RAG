@@ -312,32 +312,7 @@ pipeline {
     }
 
     post {
-
-        success {
-            echo '''
-==========================================
-DEPLOYMENT SUCCESSFUL
-==========================================
-'''
-        }
-
-        failure {
-            echo '''
-==========================================
-DEPLOYMENT FAILED
-==========================================
-'''
-        }
-
         always {
-            echo "Jenkins Job       : ${JOB_NAME}"
-            echo "Build Number      : ${BUILD_NUMBER}"
-            echo "Branch            : ${env.BRANCH_NAME}"
-            echo "Docker Image      : ${IMAGE}:${IMAGE_TAG}"
-            echo "Container         : ${CONTAINER}"
-            echo "Host Port         : ${HOST_PORT}"
-            echo "Container Port    : ${CONTAINER_PORT}"
-
             node('') {
                 cleanWs()
             }
