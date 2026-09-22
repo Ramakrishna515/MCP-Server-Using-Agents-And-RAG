@@ -51,7 +51,9 @@ pipeline {
                     sleep 2
                     if grep -q "running on stdio" server.log; then
                       echo "PASS: server started and is listening on stdio"
-                      kill $SRV
+                      kill $SRV 2>/dev/null
+                      wait $SRV 2>/dev/null
+                      exit 0
                     else
                       echo "FAIL: server did not start"
                       cat server.log
@@ -81,7 +83,9 @@ pipeline {
                       cat web.log
                       exit 1
                     fi
-                    kill $WEB
+                    kill $WEB 2>/dev/null
+                    wait $WEB 2>/dev/null
+                    exit 0
                 '''
             }
         }
