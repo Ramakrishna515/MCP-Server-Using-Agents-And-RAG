@@ -110,11 +110,11 @@ pipeline {
         }
     }
 
-    post {
-        always {
-            node {
-                cleanWs()
-            }
-        }
+    post { 
+        always { 
+            node('') { 
+                cleanWs() 
+            } 
+        } 
     }
 }
