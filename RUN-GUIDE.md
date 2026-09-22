@@ -18,7 +18,8 @@ with example commands and expected output for each step. Companion to
 - [6. Run the MCP Client](#6-run-the-mcp-client)
 - [7. Run the Web Portal](#7-run-the-web-portal)
 - [8. Example Tool Calls](#8-example-tool-calls)
-- [9. Run in Jenkins (CI)](#9-run-in-jenkins-ci)
+- [9. Run in Jenkins (CI) — End to End](#9-run-in-jenkins-ci--end-to-end)
+- [10. Run in Docker — Build & Run the Image](#10-run-in-docker--build--run-the-image)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -48,6 +49,8 @@ needed when you actually call an LLM (client / web / RAG answer).
 | `tools/*.md` | Per-agent tool documentation | ✅ |
 | `*.md` | Guides | ✅ |
 | `Jenkinsfile` | CI pipeline | ✅ |
+| `Dockerfile` | Builds the app into a container image | ✅ |
+| `.dockerignore` | Keeps junk out of the Docker build | ✅ |
 
 > **Never edit `dist/` or `node_modules/`** — delete them anytime; rebuild/reinstall regenerates them.
 
@@ -380,6 +383,98 @@ works, not just the guide text.
 
 That Jenkins instance is shared for local testing at `http://localhost:8090`; to stop
 it later: `docker rm -f jenkins-local`.
+
+---
+
+## 10. Run in Docker — Build & Run the Image
+
+This section explains how to turn the whole app (MCP server + web portal) into a
+single portable Docker image and run it.
+
+### 10.1 What it is
+
+- **`Dockerfile`** — a recipe that builds the image.
+- **`.dockerignore`** — excludes `node_modules`, `dist`, `.env`, `.git`, etc. from
+  the build so the image stays small and secrets never get baked in.
+- The image is **multi-stage**: a `build` stage compiles `src/*.ts`, then a slim
+  `runtime` stage copies only `dist/`, `public/`, `data/` + production deps. The
+  compiler never ends up in the final image.
+
+### 10.2 The Dockerfile
+
+```dockerfile
+FROM node:22 AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npm run build
+
+FROM node:22-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY --from=build /app/dist ./dist
+COPY public/ ./public/
+COPY data/ ./data/
+
+EXPOSE 3000
+CMD ["node", "--env-file-if-exists=.env", "dist/http.js"]
+```
+
+Notes:
+- The container **does not contain your `.env`** — pass keys at run time with `--env-file`.
+- `CMD` runs the same thing as `npm run web`; if no `.env` exists it just continues.
+
+### 10.3 Build the image
+
+```bash
+docker build -t build-mcp-server:latest .
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `-t build-mcp-server:latest` | Tag = name:version |
+| `.` | Build context (use Dockerfile + .dockerignore from this folder) |
+
+### 10.4 Run the image
+
+```bash
+# With your API keys
+docker run -d --name mcp-server -p 3000:3000 --env-file .env build-mcp-server:latest
+
+# Without secrets (portal starts, chat/search need keys to answer)
+docker run -d --name mcp-server -p 3000:3000 build-mcp-server:latest
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `-d` | Run in background |
+| `--name mcp-server` | Give the container a name |
+| `-p 3000:3000` | Map host port 3000 → container port 3000 |
+
+### 10.5 Verify & clean up
+
+```bash
+docker ps                    # container running?  ports: 3000
+curl http://localhost:3000   # → HTTP 200, web portal
+docker logs mcp-server       # Chat portal running at http://localhost:3000
+
+docker rm -f mcp-server      # stop + remove
+docker rmi build-mcp-server  # remove the image
+```
+
+### 10.6 Docker troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `docker: command not found` | install Docker Desktop / Docker Engine |
+| `Cannot connect to the Docker daemon` | start the Docker daemon |
+| Build fails on `npm ci` | check network; keep `package-lock.json` in sync |
+| Portal shows but chat answers nothing | the container has no `.env` — pass `--env-file .env` |
+| Port 3000 already in use | map another port: `-p 3210:3000` |
 
 ---
 
