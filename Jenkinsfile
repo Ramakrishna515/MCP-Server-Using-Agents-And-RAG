@@ -16,8 +16,8 @@ pipeline {
         CONTAINER = 'build-mcp-server'
 
         // Host port -> Container port
-        HOST_PORT = '3000'
-        CONTAINER_PORT = '4001'
+        HOST_PORT = '4001'
+        CONTAINER_PORT = '3000'
     }
 
     stages {
