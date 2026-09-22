@@ -225,13 +225,24 @@ pipeline {
                     echo "Environment    : ${NODE_ENV}"
 
                     echo ""
-                    echo "Stopping existing container..."
+                    echo "Stopping existing container (by name: ${CONTAINER})..."
 
                     docker stop ${CONTAINER} 2>/dev/null || true
-
-                    echo "Removing existing container..."
-
                     docker rm ${CONTAINER} 2>/dev/null || true
+
+                    echo ""
+                    echo "Freeing host port ${HOST_PORT} if held by any OTHER container..."
+
+                    EXISTING=$(docker ps -q --filter "publish=${HOST_PORT}")
+
+                    if [ -n "$EXISTING" ]; then
+                        echo "Port ${HOST_PORT} is in use by container id(s):"
+                        echo "$EXISTING"
+                        echo "Removing to free the port..."
+                        docker rm -f $EXISTING
+                    else
+                        echo "Port ${HOST_PORT} is free."
+                    fi
 
                     echo ""
                     echo "Starting new container..."
