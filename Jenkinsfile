@@ -15,6 +15,7 @@ pipeline {
         NODE_ENV = 'test'
         IMAGE = 'build-mcp-server'
         IMAGE_TAG = 'latest'
+        REGISTRY_REPO = 'ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag'
     }
 
     stages {
@@ -110,6 +111,41 @@ pipeline {
                     docker build -t ${IMAGE}:${IMAGE_TAG} .
                     docker images | grep ${IMAGE}
                 '''
+            }
+        }
+
+        stage('Deploy Container') {
+            agent any
+            steps {
+                withCredentials([file(credentialsId: 'mcp-env', variable: 'ENV_FILE')]) {
+                    sh '''
+                        set -e
+                        echo "Updating mcp-server container from local image ${IMAGE}:${IMAGE_TAG}"
+                        docker rm -f mcp-server 2>/dev/null || true
+                        docker run -d --name mcp-server -p 4001:3000 \\
+                            --env-file ${ENV_FILE} \\
+                            -v mcp-data:/app/data \\
+                            ${IMAGE}:${IMAGE_TAG}
+                    '''
+                }
+            }
+        }
+
+        stage('Push Image to GHCR') {
+            agent any
+            steps {
+                script {
+                    sh '''
+                        set -e
+                        echo "Tagging for registry ${REGISTRY_REPO}"
+                        docker tag ${IMAGE}:${IMAGE_TAG} ${REGISTRY_REPO}:${BUILD_NUMBER}
+                        docker tag ${IMAGE}:${IMAGE_TAG} ${REGISTRY_REPO}:latest
+                    '''
+                    docker.withRegistry('https://ghcr.io', 'ghcr-creds') {
+                        docker.image("${REGISTRY_REPO}:${BUILD_NUMBER}").push()
+                        docker.image("${REGISTRY_REPO}:latest").push()
+                    }
+                }
             }
         }
     }

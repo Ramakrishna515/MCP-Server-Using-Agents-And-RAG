@@ -384,6 +384,64 @@ works, not just the guide text.
 That Jenkins instance is shared for local testing at `http://localhost:8090`; to stop
 it later: `docker rm -f jenkins-local`.
 
+### 9.9 Automated loop now in this repo — and how to confirm it
+
+Current end-to-end flow (matches the checked-in `Jenkinsfile`):
+
+```
+push to Testing
+   → Poll SCM (every 60 s) auto-starts Jenkins
+   → Build & Test  : Checkout → Environment → Install → Build → Test → Server Smoke → Web Smoke
+   → Docker Image  : docker build -t build-mcp-server:latest .
+   → Deploy Container : docker rm -f mcp-server; docker run -d -p 4001:3000
+                        --env-file <mcp-env> -v mcp-data:/app/data build-mcp-server:latest
+   → Push Image to GHCR : docker tag ... ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag:<build#>
+                        docker tag ... :latest; push both
+```
+
+**Two mandatory credentials** (Manage Jenkins → Credentials → System → Global → Add):
+- `ghcr-creds` — Username with password (`Ramakrishna515` + `ghp_...` token that has `write:packages`).
+- `mcp-env` — **Secret file** = your `.env` content (upload a copy, e.g. `mcp-env.txt`).
+
+**Monitoring — what confirms each stage (console messages):**
+
+| Stage | Look for in the console |
+| --- | --- |
+| Test | `Test passed.` |
+| Server Smoke | `PASS: server started and is listening on stdio` |
+| Web Smoke | `PASS: web portal responding on :3000` |
+| Docker Image | `Building image build-mcp-server:latest from Dockerfile` → `Successfully tagged` |
+| Deploy Container | `Updating mcp-server container from local image build-mcp-server:latest` | + a container ID |
+| Push Image to GHCR | `Tagging for registry ghcr.io/ramakrishna515/...` + `latest: digest: sha256:...` |
+| End | `Finished: SUCCESS` |
+
+**One-liner to check the last build from your terminal:**
+```bash
+curl -s http://localhost:8090/job/build-mcp-server/lastBuild/consoleText \
+  | grep -E 'PASS:|Test passed|Building image|Updating mcp-server|digest:|Finished'
+```
+
+**Verify the container:**
+```bash
+docker ps | grep mcp-server      # Up ... seconds, image build-mcp-server:latest
+curl -s http://localhost:4001    # 200
+docker logs mcp-server           # RAG / Gemini activity
+```
+
+**Verify the registry (GitHub Container Registry):**
+```bash
+docker pull ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag:latest
+# → "Image is up to date for ghcr.io/..." means the push reached GHCR
+```
+or open https://github.com/Ramakrishna515?tab=packages → the package shows versions `:<build#>` + `:latest`.
+
+**What changed end to end (vs. the earlier build-only version):**
+- Auto-trigger: `triggers { pollSCM('* * * * *') }` (in Jenkinsfile) + Poll SCM on the job.
+- New stage **Deploy Container** — replaces the live container from the fresh image (notes kept via `mcp-data` volume).
+- New stage **Push Image to GHCR** — tags + pushes the image to the GitHub registry after deploy.
+- `.gitignore` now also ignores `mcp-env.txt` (the secret copy made for the credential).
+- Manual registry steps documented in DOCKER-GUIDE.md §15.
+
 ---
 
 ## 10. Run in Docker — Build & Run the Image

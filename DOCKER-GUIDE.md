@@ -22,6 +22,7 @@ example below works against this folder. Companion to `RUN-GUIDE.md` (§ 10).
 12. [Common Issues & Solutions](#12-common-issues--solutions)
 13. [Commands Cheatsheet](#13-commands-cheatsheet)
 14. [Resources](#14-resources)
+15. [Pushing to GitHub Packages (GHCR) — Manual Steps](#15-pushing-to-github-packages-ghcr--manual-steps)
 
 ---
 
@@ -486,6 +487,57 @@ docker system prune -a
 - Node official images: https://hub.docker.com/_/node
 - Best practices: https://docs.docker.com/develop/dev-best-practices
 - Compose spec: https://docs.docker.com/compose
+
+---
+
+## 15. Pushing to GitHub Packages (GHCR) — Manual Steps
+
+GitHub Packages is GitHub's own container registry. There is **no "upload" button** —
+the package is created automatically the first time you `docker push` an image whose
+name starts with `ghcr.io/<owner>/`. If the image name matches a repo name, the
+package is linked to that repo; otherwise it lives under your account.
+
+### Step 0 — prerequisites
+- A GitHub account (here `Ramakrishna515`).
+- Docker CLI (already installed).
+- A personal access token (PAT) with the `write:packages` scope.
+
+Create the token here: https://github.com/settings/tokens/new
+(scopes to tick: `write:packages` — auto-selects `read:packages` and `delete:packages`).
+
+### Step 1 — log Docker into GHCR
+```bash
+echo "PASTE_your_token_here" | docker login ghcr.io -u Ramakrishna515 --password-stdin
+```
+
+### Step 2 — tag your local image with the registry path
+```bash
+docker tag build-mcp-server:latest ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag:latest
+```
+> The tag (`latest`, or a commit SHA like `c8e50ce`) becomes the package version in GitHub.
+
+### Step 3 — push (this is what creates/publishes the package)
+```bash
+docker push ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag:latest
+```
+- Every new tag you push shows up as a new version of the package.
+
+### Step 4 — verify
+```bash
+docker pull ghcr.io/ramakrishna515/mcp-server-using-agents-and-rag:latest
+# "Status: Image is up to date for ghcr.io/..." = published successfully
+```
+
+### Where to see it on GitHub
+- Your packages: https://github.com/Ramakrishna515?tab=packages
+- Repo-linked package (name matches the repo): open the repo
+  https://github.com/Ramakrishna515/MCP-Server-Using-Agents-And-RAG → **Packages** tab on the right.
+- Manage/delete versions: open the package → ⚙️ Settings.
+
+### Rules of thumb
+- The package is **public** if the repo is public (and the token used has public access).
+- You must be logged in to GHCR with a `write:packages` token to push; pulling needs no login for public packages.
+- GHCR GUI/docs: https://docs.github.com/en/packages
 
 ---
 
