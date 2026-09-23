@@ -7,6 +7,10 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
+    triggers {
+        pollSCM('* * * * *')
+    }
+
     environment {
         NODE_ENV = 'test'
         IMAGE = 'build-mcp-server'
