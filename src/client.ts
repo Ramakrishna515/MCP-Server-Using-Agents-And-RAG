@@ -9,8 +9,7 @@ type ChatMessage = {
   tool_calls?: ToolCall[];
 };
 
-
-let rk;
+let arka = 0;
 
 type ToolCall = {
   id: string;
