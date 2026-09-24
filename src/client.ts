@@ -9,6 +9,8 @@ type ChatMessage = {
   tool_calls?: ToolCall[];
 };
 
+let rk;
+
 type ToolCall = {
   id: string;
   type: "function";
