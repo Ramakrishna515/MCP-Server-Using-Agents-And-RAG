@@ -10,7 +10,7 @@ type ChatMessage = {
 };
 
 
-let ark;
+let rk;
 
 type ToolCall = {
   id: string;
