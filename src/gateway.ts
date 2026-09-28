@@ -1,4 +1,4 @@
-import { ChatMessage, callLLM, FunctionTool } from "./providers.js";
+import { ChatMessage, streamLLM } from "./providers.js";
 import { getToolsForAgent, executeToolCall } from "./tools.js";
 import { Agent } from "./agents.js";
 
@@ -135,6 +135,51 @@ async function emitMarkdown(events: GatewayEvents, markdown: string) {
   }
 }
 
+function extractSourceLinks(raw: string): string[] {
+  const links: string[] = [];
+  for (const m of raw.matchAll(/^🔗 (.+)$/gm)) links.push(m[1]);
+  return links;
+}
+
+// Feed the tool output to the LLM and stream a human-readable Markdown answer.
+async function streamSynthesizedAnswer(
+  events: GatewayEvents,
+  provider: string,
+  model: string | undefined,
+  query: string,
+  toolName: string,
+  toolResult: string
+): Promise<string> {
+  const system =
+    toolName === "search_web"
+      ? "You are a research assistant. The web search results for the user's question are below. " +
+        "Analyze them and answer the user's original question in clear, human-readable Markdown. " +
+        "Start with a short direct answer, then key points, and end with a Sources list using ONLY the URLs given below. " +
+        "If the results do not actually answer the question, say so plainly. Do not invent facts or links.\n\n" +
+        "=== SEARCH RESULTS ===\n" +
+        toolResult
+      : "You are a helpful assistant. The user asked a question which a tool handled below. " +
+        "Rewrite the tool output into a concise, human-readable Markdown answer for the user's original request. " +
+        "Do not add facts that are not present in the tool output. Use headings and lists where helpful.\n\n" +
+        "=== TOOL OUTPUT ===\n" +
+        toolResult;
+
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: query },
+  ];
+
+  let full = "";
+  for await (const chunk of streamLLM(provider, model, messages)) {
+    for (const ch of chunk) {
+      full += ch;
+      events.delta(ch);
+      await sleep(10);
+    }
+  }
+  return full;
+}
+
 export async function runAgent({
   agent,
   provider,
@@ -163,6 +208,30 @@ export async function runAgent({
     events.toolCall(toolName, JSON.stringify(args));
     const result = await executeToolCall(toolName, args);
     events.toolResult(toolName, result.slice(0, 500));
+
+    // Always analyze the tool output with the LLM and stream a
+    // human-readable Markdown answer, like the RAG endpoint does.
+    try {
+      events.status("✨ Writing the answer…");
+      const answer = await streamSynthesizedAnswer(
+        events,
+        provider,
+        model,
+        userMessage,
+        toolName,
+        result
+      );
+      const links = extractSourceLinks(result);
+      const sources =
+        links.length > 0 && !/sources?/i.test(answer)
+          ? `\n\n**Sources:**\n${links.map((u) => `- ${u}`).join("\n")}`
+          : "";
+      const md = answer + sources;
+      events.done({ role: "assistant", content: md });
+      return;
+    } catch (err) {
+      events.status("⚠️ Synthesizer failed, showing raw results instead.");
+    }
 
     const md = formatToolMarkdown(toolName, result);
     await emitMarkdown(events, md);

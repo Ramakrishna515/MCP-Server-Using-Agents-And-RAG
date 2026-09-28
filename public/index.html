@@ -134,6 +134,12 @@
           .map((p) => `<option value="${p.name}" data-key="${p.hasKey}">${p.displayName}</option>`)
           .join("");
 
+        const preferred =
+          meta.providers.find((p) => p.hasKey && p.name !== "tinyfish") ||
+          meta.providers.find((p) => p.hasKey) ||
+          meta.providers[0];
+        if (preferred) $("providerSelect").value = preferred.name;
+
         $("providerSelect").addEventListener("change", updateModels);
         updateModels();
         renderKeyStatus();

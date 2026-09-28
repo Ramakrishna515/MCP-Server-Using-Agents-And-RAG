@@ -15,7 +15,17 @@ app.use(express.json());
 
 const hasRealKey = (envName: string): boolean => {
   const v = process.env[envName];
-  return typeof v === "string" && !/(\.\.\.|your|example|sk-ant-\.\.\.)/i.test(v);
+  if (typeof v !== "string") return false;
+  const t = v.trim();
+  return t.length > 0 && !/(\.\.\.|your|example|sk-ant-\.\.\.)/i.test(t);
+};
+
+const pickDefaultProvider = (): string => {
+  for (const p of Object.values(PROVIDERS)) {
+    if (p.name === "tinyfish") continue;
+    if (hasRealKey(p.apiKeyEnv)) return p.name;
+  }
+  return "grok";
 };
 
 app.get("/api/meta", (_req, res) => {
@@ -66,7 +76,7 @@ app.post("/api/chat", (req, res) => {
 
   const resolvedAgentId = agentId || "test";
   const agent = getAgentById(resolvedAgentId);
-  const resolvedProvider = provider || "grok";
+  const resolvedProvider = provider || pickDefaultProvider();
   const resolvedSessionId = sessionId || crypto.randomUUID();
 
   if (!sessions.has(resolvedSessionId)) {
