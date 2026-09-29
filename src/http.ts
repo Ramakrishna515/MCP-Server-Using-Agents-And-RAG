@@ -220,9 +220,11 @@ app.post("/api/rag/HowTo", async (req, res) => {
     if (!res.writableEnded) abort.abort();
   });
 
+  let hits: { id: string; title: string; text: string; score: number }[] = [];
+
   try {
     writeSse(res, { type: "status", message: "🔎 Searching your notes…" });
-    const hits = await searchIndex(query, k || 5);
+    hits = await searchIndex(query, k || 5);
 
     if (hits.length === 0) {
       writeSse(res, {
@@ -270,7 +272,29 @@ app.post("/api/rag/HowTo", async (req, res) => {
     writeSse(res, { type: "done", text: "", sessionId: "" });
     res.end();
   } catch (err) {
-    writeSse(res, { type: "error", error: err instanceof Error ? err.message : String(err) });
+    const message = err instanceof Error ? err.message : String(err);
+    const isRateLimit = /429|quota|rate\s*limit|resource\s*exhausted/i.test(message);
+    if (isRateLimit && hits.length > 0) {
+      // Deliver a usable, human-readable answer from the retrieved notes anyway.
+      const notesMd =
+        "# Found in your notes\n\n" +
+        hits
+          .map((h) => `- **[${h.id}] ${h.title}**${h.text ? ` — ${h.text.slice(0, 300)}` : ""}`)
+          .join("\n") +
+        "\n\n> ⚠️ The AI is rate-limited (free tier). Retry in ~1 minute for a full answer.";
+      writeSse(res, {
+        type: "status",
+        message: "⚠️ AI rate-limited — showing retrieved notes as a fallback.",
+      });
+      for (const ch of notesMd) {
+        writeSse(res, { type: "delta", text: ch });
+        await sleep(10);
+      }
+      writeSse(res, { type: "done", text: "", sessionId: "" });
+      res.end();
+      return;
+    }
+    writeSse(res, { type: "error", error: message });
     res.end();
   }
 });
